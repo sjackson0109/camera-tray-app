@@ -45,3 +45,5 @@ The `camera.config` file is a JSON file that defines the list of cameras to be d
     }
   ]
 }
+
+### Explaination of Properties

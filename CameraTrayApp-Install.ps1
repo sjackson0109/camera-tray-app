@@ -3,7 +3,7 @@ $sourcePath = ".\bin\Release\net8.0-windows\win-x64\publish"
 $destinationPath = "C:\Program Files\Simon Jackson\CameraTray"
 $shortcutPath = "$([Environment]::GetFolderPath('CommonDesktopDirectory'))\CameraTrayApp.lnk"
 $startupShortcutPath = "$([Environment]::GetFolderPath('Startup'))\CameraTrayApp.lnk"
-
+ 
 # Ensure the source path exists
 if (-Not (Test-Path $sourcePath)) {
     Write-Host "Source path not found: $sourcePath" -ForegroundColor Red
