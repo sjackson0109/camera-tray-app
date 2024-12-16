@@ -1,0 +1,28 @@
+1. Usability Enhancements
+Include hotkey support for show camera! Ctrl + Shift + I ?
+Provide a graphical interface for adding and editing cameras directly from the application, rather than requiring manual edits to the camera.config file.
+Include tooltips in the system tray menu to improve user experience.
+Allow users to save common configurations as templates for rapid deployment.
+2. Configuration Management
+Validate the camera.config file at runtime to identify errors and suggest corrections, ensuring no interruptions due to invalid JSON.
+Support importing and exporting configuration files for easier sharing and backup.
+3. Error Handling and Logging
+Make debug logging adjustable from the UI instead of requiring JSON edits.
+Include timestamps and session identifiers in logs for easier troubleshooting.
+Provide detailed error messages for stream failures, specifying whether it's a network issue, authentication failure, or an invalid URL.
+4. Security Improvements
+Encrypt sensitive information like User and Password in the camera.config file. Try system.security.cryptography class
+Implement HTTPS for secure communication with camera URLs if the cameras support it.
+5. Performance Optimization
+Add a benchmarking tool within the app to test and rate the performance of configured camera streams.
+Allow dynamic resizing of video windows based on available system resources.
+6. Expanded Features
+Separate UDP or TCP feeds, with a tickbox.
+Integrate support for other video stream protocols (e.g., HLS, MPEG-DASH).
+Add an option to record streams or capture snapshots directly from the app.
+Offer scheduling options for camera activation, e.g., only stream during specified times.
+7. Documentation and Onboarding
+Include a wizard or guided setup during the first launch to assist users in configuring their cameras.
+Expand the README with troubleshooting steps for common ffplay issues.
+Provide examples for advanced configurations, such as grouped layouts or multi-screen setups.
+8. ONVIF discovery tool - popout separate to the config window.
