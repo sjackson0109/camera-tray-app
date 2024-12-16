@@ -17,7 +17,7 @@ The **Camera Tray App** is a Windows application designed for managing and viewi
 - Operating System: Microsoft Windows 10/11+
 - **.NET Framework**: .NET Framework version 8.0+.
 - **Video Player**: `ffplay.exe` will be included inside the `lib` directory of the application folder. This is essential for video stream playback.
-- **Camera Configuration File**: The app requires a `camera.config` file with proper JSON formatting (explained below).
+- **Camera Configuration File**: The app requires a `cameras.config` file with proper JSON formatting (explained below).
 
 ---
 
@@ -26,21 +26,21 @@ The **Camera Tray App** is a Windows application designed for managing and viewi
 1. **Clone or Download** the repository.
 2. Place the required dependencies (`ffplay.exe`) in the `lib` directory.
 3. Compile the project using Visual Studio or a compatible IDE.
-4. Ensure the `camera.config` file exists in the application's directory with valid configurations.
+4. Ensure the `cameras.config` file exists in the application's directory with valid configurations.
 
 ---
 
 ## Configuration Guide
-This product supports a `camera.config` file in either of the two paths (in order):
-1. `%appdata%\Simon Jackson\CameraTrayApp\camera.config`
-2. `C:\Program Files\Simon Jackson\CameraTrayApp\camera.config`
+This product supports a `cameras.config` file in either of the two paths (in order):
+1. `%appdata%\Simon Jackson\CameraTrayApp\cameras.config`
+2. `C:\Program Files\Simon Jackson\CameraTrayApp\cameras.config`
 
 > [!TIP]
 > - When opening the app, path 1 will be attempted to be read. Falling back to path 1
 > - When saving config; the application will create file 1 (in most circumstances)
 
 
-### JSON Configuration File: `camera.config`
+### JSON Configuration File: `cameras.config`
 
 This file is critical for loading camera settings. It should adhere to the following structure:
 
@@ -124,7 +124,7 @@ Initally Logging levels are set to minimal, but it is possible to enable debug l
 - Verify the Url and ensure it includes the correct port and path for the camera feed.
 - Check the camera's user manual or online support for the correct RTSP/HTTP paths.
 ### Error Loading Configuration:
-- Ensure the camera.config file exists and is a correctly formatted JSON file - see [JSON Configuration File](###%20JSON%20Configuration%20File) above.
+- Ensure the cameras.config file exists and is a correctly formatted JSON file - see [JSON Configuration File](###%20JSON%20Configuration%20File) above.
 
 
 ### Request for feedback

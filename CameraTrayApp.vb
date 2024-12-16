@@ -34,6 +34,7 @@ End Module
 
 Public Module LogUtility
     Private ReadOnly LogDirectory As String = InitializeLogDirectory()
+    Private ReadOnly LogFilePath As String = Path.Combine(LogDirectory, "application.log")
 
     Private Function InitializeLogDirectory() As String
         Dim directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "\", _
@@ -52,26 +53,43 @@ Public Module LogUtility
         End If
     End Sub
 
-    Public Sub WriteLog(logType As String, message As String, Optional ex As Exception = Nothing)
+    Private DebugLevelOrder As New Dictionary(Of String, Integer) From {
+        {"trace", 1},
+        {"info", 2},
+        {"warning", 3},
+        {"error", 4}
+    }
+    Private CurrentDebugLevel As Integer = DebugLevelOrder("error") ' Default level
+
+    Public Sub InitializeDebugLevel(configPath As String)
         Try
-            ' Construct the log file path and entry
-            Dim logFilePath As String = Path.Combine(LogDirectory, $"{logType}.log")
-            Dim timestamp As String = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}]"
-            Dim logEntry As String = $"{timestamp} [{logType.ToUpper()}] {message}"
+            If File.Exists(configPath) Then
+                Dim configJson As String = File.ReadAllText(configPath)
+                Dim configData As JsonDocument = JsonDocument.Parse(configJson)
 
-            ' Append exception details if provided
-            If ex IsNot Nothing Then
-                logEntry &= $"{Environment.NewLine}Exception: {ex.Message}{Environment.NewLine}StackTrace: {ex.StackTrace}{Environment.NewLine}"
+                Dim debugLevelElement As JsonElement
+                If configData.RootElement.TryGetProperty("debugLevel", debugLevelElement) Then
+                    Dim debugLevel As String = debugLevelElement.GetString()?.ToLower()
+                    If Not String.IsNullOrEmpty(debugLevel) AndAlso DebugLevelOrder.ContainsKey(debugLevel) Then
+                        CurrentDebugLevel = DebugLevelOrder(debugLevel)
+                    End If
+                End If
             End If
-
-            ' Append the log entry to the runtime log file
-            File.AppendAllText(logFilePath, logEntry & Environment.NewLine)
-        Catch writeEx As Exception
-            ' Fallback mechanism for logging errors
-            Dim fallbackLogPath = Path.Combine(LogDirectory, "fallback_error.log")
-            Dim fallbackLogEntry As String = $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss.fff}] [ERROR] Failed to write log entry: {writeEx.Message}{Environment.NewLine}"
-            File.AppendAllText(fallbackLogPath, fallbackLogEntry)
+        Catch ex As Exception
+            Console.WriteLine($"Error reading debug level: {ex.Message}")
         End Try
+    End Sub
+
+    Public Sub WriteLog(logType As String, message As String)
+        If DebugLevelOrder.ContainsKey(logType.ToLower()) AndAlso DebugLevelOrder(logType.ToLower()) >= CurrentDebugLevel Then
+            Try
+                Using writer As StreamWriter = New StreamWriter(LogFilePath, True)
+                    writer.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{logType.ToUpper()}] {message}")
+                End Using
+            Catch ex As Exception
+                Console.WriteLine($"Error writing to log: {ex.Message}")
+            End Try
+        End If
     End Sub
 End Module
 
