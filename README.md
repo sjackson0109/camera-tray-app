@@ -15,8 +15,8 @@ The **Camera Tray App** is a Windows application designed for managing and viewi
 
 ## System Requirements
 - Operating System: Microsoft Windows 10/11+
-- **.NET Framework**: Install the appropriate .NET Framework version.
-- **`ffplay` Utility**: Place `ffplay.exe` in the `lib` directory of the application folder. This is essential for video stream playback.
+- **.NET Framework**: .NET Framework version 8.0+.
+- **Video Player**: `ffplay.exe` will be included inside the `lib` directory of the application folder. This is essential for video stream playback.
 - **Camera Configuration File**: The app requires a `camera.config` file with proper JSON formatting (explained below).
 
 ---
@@ -34,7 +34,8 @@ The **Camera Tray App** is a Windows application designed for managing and viewi
 This product supports a `camera.config` file in either of the two paths (in order):
 1. `%appdata%\Simon Jackson\CameraTrayApp\camera.config`
 2. `C:\Program Files\Simon Jackson\CameraTrayApp\camera.config`
-> [!TIPs]
+
+> [!TIP]
 > - When opening the app, path 1 will be attempted to be read. Falling back to path 1
 > - When saving config; the application will create file 1 (in most circumstances)
 
@@ -71,7 +72,8 @@ This file is critical for loading camera settings. It should adhere to the follo
 }
 
 ```
-> [!WARNING] Use a `viewer-only` account credentials, to avoid exposing administrative/root access to the IP Camera.
+> [!WARNING]
+> Use a `viewer-only` account credentials, to avoid exposing administrative/root access to the IP Camera.
 
 ### Explanation of Properties
 
