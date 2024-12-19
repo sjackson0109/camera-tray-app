@@ -368,7 +368,7 @@ Public Class frmShow
             Me.StartPosition = FormStartPosition.CenterScreen
             Me.WindowState = FormWindowState.Normal ' Starting state
             Me.FormBorderStyle = FormBorderStyle.SizableToolWindow ' Remove border and buttons
-            If Cameras.Count <= 1 Then
+            If Cameras.Count = 1 Then
                 Me.Size = New Size(800, 580)
             Else
                 Me.Size = CalculateGridSize()
@@ -385,20 +385,65 @@ Public Class frmShow
     Private Sub SetupGrid()
         Try
             WriteLog("info", "Setting up grid.")
-            If Cameras Is Nothing OrElse Cameras.Count = 0 Then ' Check if Cameras has records
+
+            ' Ensure there are camera configurations
+            If Cameras Is Nothing OrElse Cameras.Count = 0 Then
                 Throw New InvalidOperationException("No cameras configured. Please add camera records in the configuration.")
             End If
+
             Me.Controls.Clear() ' Clear previous controls
-            Dim columns As Integer = If(Cameras.Count = 1, 1, Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))))
-            Dim rows As Integer = If(Cameras.Count = 1, 1, CInt(Math.Ceiling(Cameras.Count / columns)))
-            Dim panelWidth As Integer = Me.ClientSize.Width \ columns
-            Dim panelHeight As Integer = Me.ClientSize.Height \ rows
-            For i As Integer = 0 To Cameras.Count - 1 ' looping through configured camera configs
+
+            ' Tally up total dimensions and find the maximum width/height needed
+            Dim totalWidth As Integer = 0
+            Dim totalHeight As Integer = 0
+            For Each camera As CameraConfig In Cameras
+                totalWidth += camera.Width
+                totalHeight = Math.Max(totalHeight, camera.Height) ' Use the tallest height
+            Next
+
+            ' Scale the grid dimensions to fit within the form's client size
+            Dim scaleFactorX As Double = Me.ClientSize.Width / totalWidth
+            Dim scaleFactorY As Double = Me.ClientSize.Height / totalHeight
+            Dim scaleFactor As Double = Math.Min(scaleFactorX, scaleFactorY) ' Ensure we fit within both dimensions
+
+            ' Initialize current X position for stacking panels horizontally
+            Dim currentX As Integer = 0
+            Dim currentY As Integer = 0
+            Dim rowHeight As Integer = 0
+
+            ' Loop through cameras and create panels
+            For i As Integer = 0 To Cameras.Count - 1
                 Dim camera As CameraConfig = DirectCast(Cameras(i), CameraConfig)
-                Dim panel As New Panel With { .Width = panelWidth, .Height = panelHeight, .Left = (i Mod columns) * panelWidth, .Top = (i \ columns) * panelHeight, .BackColor = Color.Black }
+
+                ' Scale dimensions based on the calculated scale factor
+                Dim panelWidth As Integer = CInt(camera.Width * scaleFactor)
+                Dim panelHeight As Integer = CInt(camera.Height * scaleFactor)
+
+                ' Check if a new row is needed
+                If currentX + panelWidth > Me.ClientSize.Width Then
+                    currentX = 0 ' Reset X to the start of the new row
+                    currentY += rowHeight ' Move down by the height of the tallest panel in the row
+                    rowHeight = 0 ' Reset row height
+                End If
+
+                ' Update the row height
+                rowHeight = Math.Max(rowHeight, panelHeight)
+
+                ' Create and position the panel
+                Dim panel As New Panel With {
+                    .Width = panelWidth,
+                    .Height = panelHeight,
+                    .Left = currentX,
+                    .Top = currentY,
+                    .BackColor = Color.Black
+                }
                 Me.Controls.Add(panel)
-                StartFFplay(camera, panel,"") '3rd parameter includes optional parameters for ffplay.exe
-                'StartFFplay(rtspUrl, panel, Cameras(i).Name)
+
+                ' Start the camera feed
+                StartFFplay(camera, panel, "") ' 3rd parameter includes optional parameters for ffplay.exe
+
+                ' Update the current X position for the next panel
+                currentX += panelWidth
             Next
 
             WriteLog("info", "SetupGrid completed successfully.")
@@ -410,6 +455,37 @@ Public Class frmShow
             Throw
         End Try
     End Sub
+
+    Private Function CalculateGridSize() As Size
+        ' Dynamically calculate the grid size based on camera configurations
+        If Cameras.Count = 1 Then
+            ' Use the dimensions of the first camera if there's only one
+            Dim singleCamera As CameraConfig = CType(Cameras(0), CameraConfig)
+            Return New Size(singleCamera.Width, singleCamera.Height)
+        End If
+
+        ' Get maximum width and height from the camera configurations
+        Dim maxFeedWidth As Integer = Cameras.Max(Function(cam) CType(cam, CameraConfig).Width)
+        Dim maxFeedHeight As Integer = Cameras.Max(Function(cam) CType(cam, CameraConfig).Height)
+
+        ' Calculate grid dimensions
+        Dim gridColumns As Integer = CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))
+        Dim gridRows As Integer = CInt(Math.Ceiling(Cameras.Count / CDbl(gridColumns)))
+
+        ' Adjust the total grid size based on the exact camera count
+        Dim totalWidth As Integer = gridColumns * maxFeedWidth
+        Dim totalHeight As Integer = gridRows * maxFeedHeight
+
+        ' Ensure no extra space by adjusting the total size to fit the exact number of cameras
+        If Cameras.Count < (gridColumns * gridRows) Then
+            Dim actualRows As Integer = CInt(Math.Ceiling(Cameras.Count / CDbl(gridColumns)))
+            totalHeight = actualRows * maxFeedHeight
+        End If
+
+        ' Return calculated grid size
+        Return New Size(totalWidth, totalHeight)
+    End Function
+
     Private Sub OnFormResize(sender As Object, e As EventArgs)
         Try
             Dim columns As Integer = If(Cameras.Count = 1, 1, Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))))
@@ -437,22 +513,7 @@ Public Class frmShow
             WriteLog("error", $"Error resizing grid: {ex.Message}")
         End Try
     End Sub
-    Private Function CalculateGridSize() As Size
-        ' Default to 800x600 for single feed or calculate based on grid
-        If Cameras.Count = 1 Then
-            Return New Size(800, 600) ' Adjust to fit single video resolution
-        End If
 
-        Dim feedWidth As Integer = 400
-        Dim feedHeight As Integer = 300
-        Dim gridColumns As Integer = Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count))))
-        Dim gridRows As Integer = CInt(Math.Ceiling(Cameras.Count / CDbl(gridColumns)))
-
-        Dim totalWidth As Integer = gridColumns * feedWidth
-        Dim totalHeight As Integer = gridRows * feedHeight
-
-        Return New Size(totalWidth, totalHeight)
-    End Function
     Public Sub GenerateRtspUrls(cameras As List(Of Object))
         For Each cameraObj In cameras
             Dim camera As CameraConfig = DirectCast(cameraObj, CameraConfig)
@@ -793,6 +854,5 @@ Public Module ConfigUtility
             Return DefaultConfig()
         End Try
     End Function
-
 
 End Module
