@@ -1,30 +1,31 @@
 Imports System.IO
 Imports System.Diagnostics
 Imports System.Drawing
+Imports System.Environment
 Imports System.Reflection
 Imports System.Runtime.InteropServices
 Imports System.Text.Json
-
 Imports System.Windows.Forms 
  
-Module Program
+Public Module Program
+    Public config As configData = LoadConfig()
+
     Sub Main(args As String())
         Application.EnableVisualStyles()
-        Application.SetCompatibleTextRenderingDefault(False)
-
-        If args.Length > 0 Then
-            Select Case args(0).ToLower()
+        LogUtility.EnsureDirectoryExists(LogUtility.LogDirectory)
+        LogUtility.WriteLog("info", "Application started successfully.")
+        If args.Length > 0 Then ' Process arguments
+            Dim CameraTrayApp = new CameraTrayApp()
+            LogUtility.WriteLog("trace", "CLI argument `{args(0)}` identified")
+            Select Case args(0).ToLower().Replace("-","")
                 Case "about"
-                    Dim trayApp As New CameraTrayApp()
-                    trayApp.About()
+                    CameraTrayApp.btnAbout()
                 Case "show"
-                    Dim trayApp As New CameraTrayApp()
-                    trayApp.Show()
+                    CameraTrayApp.btnShow()
                 Case "config"
-                    Dim trayApp As New CameraTrayApp()
-                    trayApp.Configure()
+                    CameraTrayApp.btnConfig()
                 Case Else
-                    MessageBox.Show("Unknown argument. Valid options: 'show'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+                    MessageBox.Show("Unknown argument. Valid options: 'show', 'about', 'config'.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
             End Select
         Else
             Application.Run(New CameraTrayApp())
@@ -33,393 +34,295 @@ Module Program
 End Module
 
 Public Module LogUtility
-    Private ReadOnly LogDirectory As String = InitializeLogDirectory()
-    Private ReadOnly LogFilePath As String = Path.Combine(LogDirectory, "application.log")
-
-    Private Function InitializeLogDirectory() As String
-        Dim directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "\", _
+    Public ReadOnly LogDirectory As String = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "\", _
         Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)?.Company.ToString(), "\", _
         Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyProductAttribute)?.Product.ToString(), "\logs")
+    Public ReadOnly LogFilePath As String = System.IO.Path.Combine(LogDirectory, "application.log")    
+    Private ReadOnly LogLevels As New Dictionary(Of String, Integer) From { {"trace", 1}, {"info", 2}, {"warning", 3}, {"error", 4} }
 
-        ' Ensure the directory exists
-        EnsureDirectoryExists(directory)
-
-        Return directory
-    End Function
-
-    Private Sub EnsureDirectoryExists(directoryPath As String)
-        If Not Directory.Exists(directoryPath) Then
-            Directory.CreateDirectory(directoryPath)
+    ' Existing method to ensure directory exists recursively
+    Public Sub EnsureDirectoryRecursive(dir As String)
+        If String.IsNullOrEmpty(dir) OrElse System.IO.Directory.Exists(dir) Then
+            Return ' Base case: Stop if the directory exists or is invalid
         End If
+
+        ' Recurse to ensure the parent directory exists
+        Dim parentDirectory As String = System.IO.Path.GetDirectoryName(dir)
+        EnsureDirectoryRecursive(parentDirectory)
+
+        ' Create the current directory after parent is ensured
+        System.IO.Directory.CreateDirectory(dir)
     End Sub
-
-    Private DebugLevelOrder As New Dictionary(Of String, Integer) From {
-        {"trace", 1},
-        {"info", 2},
-        {"warning", 3},
-        {"error", 4}
-    }
-    Private CurrentDebugLevel As Integer = DebugLevelOrder("error") ' Default level
-
-    Public Sub InitializeDebugLevel(configPath As String)
+    ' Recursive helper function to ensure all levels of the directory exist
+    Public Sub EnsureDirectoryExists(filePath As String)
         Try
-            If File.Exists(configPath) Then
-                Dim configJson As String = File.ReadAllText(configPath)
-                Dim configData As JsonDocument = JsonDocument.Parse(configJson)
+            ' Extract the target directory
+            Dim directory As String = System.IO.Path.GetDirectoryName(filePath)
 
-                Dim debugLevelElement As JsonElement
-                If configData.RootElement.TryGetProperty("debugLevel", debugLevelElement) Then
-                    Dim debugLevel As String = debugLevelElement.GetString()?.ToLower()
-                    If Not String.IsNullOrEmpty(debugLevel) AndAlso DebugLevelOrder.ContainsKey(debugLevel) Then
-                        CurrentDebugLevel = DebugLevelOrder(debugLevel)
-                    End If
-                End If
-            End If
+            ' Ensure the target directory recursively
+            EnsureDirectoryRecursive(directory)
         Catch ex As Exception
-            Console.WriteLine($"Error reading debug level: {ex.Message}")
+            ' Log or handle errors as needed
+            Throw
         End Try
     End Sub
 
-    Public Sub WriteLog(logType As String, message As String)
-        If DebugLevelOrder.ContainsKey(logType.ToLower()) AndAlso DebugLevelOrder(logType.ToLower()) >= CurrentDebugLevel Then
-            Try
-                Using writer As StreamWriter = New StreamWriter(LogFilePath, True)
-                    writer.WriteLine($"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{logType.ToUpper()}] {message}")
-                End Using
-            Catch ex As Exception
-                Console.WriteLine($"Error writing to log: {ex.Message}")
-            End Try
-        End If
+    Public Sub WriteLog(level As String, message As String)
+        Try
+            ' Skip writing logs if the level is lower than the configured level
+            If Not LogLevels.ContainsKey(level.ToLower()) OrElse
+                LogLevels(level.ToLower()) < LogLevels(Program.config.debugLevel) Then
+                Return
+            End If
+
+            ' Construct log file path
+            Dim logFilePath As String = System.IO.Path.Combine( GetFolderPath(SpecialFolder.ApplicationData),Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)?.Company.ToString(),"CameraTrayApp","application.log" )
+            Dim logMessage As String = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} [{level.ToLower()}] {message}"
+
+            ' Ensure the logs directory exists
+            Dim logDirectory As String = System.IO.Path.GetDirectoryName(logFilePath)
+            If Not IO.Directory.Exists(logDirectory) Then
+                IO.Directory.CreateDirectory(logDirectory)
+            End If
+
+            ' Write to log file
+            IO.File.AppendAllText(logFilePath, logMessage & Environment.NewLine)
+
+            ' Optionally write to the console for debugging
+            Console.WriteLine(logMessage)
+        Catch ex As Exception
+            ' Fallback if logging fails
+            Console.WriteLine($"Failed to write log: {ex.Message}")
+        End Try
     End Sub
+
 End Module
 
-Public Class AboutBox
-    Inherits Form
+Public Class TrayIconUtility
+    Private trayIcon As NotifyIcon
+    Private cameraApp As CameraTrayApp
+    Public Sub New()
+        Try
+            WriteLog("info", "Initializing TrayIconUtility...")
+            cameraApp = New CameraTrayApp()
+            trayIcon = New NotifyIcon() With { .Icon = New Icon("CameraTrayApp.ico"), .Visible = True, .Text = Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyTitleAttribute)()?.Title.ToString() }
+            WriteLog("info", "TrayIconUtility initialized successfully.")
+        Catch ex As Exception
+            WriteLog("error", $"Error initializing TrayIconUtility: {ex.Message}")
+            Throw
+        End Try
+    End Sub
+End Class
 
+
+Public Class frmAbout
+    Inherits Form
     Private memoField As TextBox
-    Private authorLink As LinkLabel
+    Private authorLabel As Label
     Private versionLabel As Label
+    Private sourceLabel As Label
     Private hyperlink As LinkLabel
 
     Public Sub New()
-        ' Set form properties
-        Me.Text = "About"
-        Me.Size = New Size(400, 300)
-        Me.StartPosition = FormStartPosition.CenterScreen
+        Try
+            WriteLog("info", "Initializing About form...")
 
-        ' Create and configure memo field
-        memoField = New TextBox()
-        memoField.Multiline = True
-        memoField.ReadOnly = True
-        memoField.ScrollBars = ScrollBars.Vertical
-        memoField.Size = New Size(250, 120)
-        memoField.Location = New Point(20, 20)
-        memoField.Text = "A lightweight system tray application for managing and viewing RTSP camera feeds."
-        Me.Controls.Add(memoField)
+            ' Set form properties
+            Me.Text = "About"
+            Me.Size = New Size(370, 170)
+            Me.StartPosition = FormStartPosition.CenterScreen
 
-        ' Create and configure author link
-        authorLabel = New Label()
-        authorLabel.Text = "Author: " & Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)()?.Company.ToString()
-        authorLabel.Location = New Point(20, 140)
-        authorLabel.AutoSize = True
-        Me.Controls.Add(authorLabel)
+            memoField = New TextBox() With { .Location = New Point(20, 20), .Size = New Size(315, 40), .ReadOnly = True, .Multiline = True, .ScrollBars = ScrollBars.None, .Text = "A lightweight system tray application for managing and viewing RTSP camera feeds." }
+            authorLabel = New Label() With { .Location = New Point(20, 65), .AutoSize = True, .Text = "Author: " & Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)()?.Company.ToString() }
+            versionLabel = New Label() With { .Location = New Point(20, 85), .AutoSize = True, .Text = "Version: " & Assembly.GetExecutingAssembly().GetName().Version.ToString() }
+            sourceLabel = New Label() With { .Location = New Point(20, 105), .AutoSize = True, .Text = "Source:" }
+            hyperlink = New LinkLabel() With { .Location = New Point(63, 105), .AutoSize = True, .Text = "github.com/sjackson0109/camera-tray-app" }
 
-        ' Create and configure version label
-        Dim version = Assembly.GetExecutingAssembly().GetName().Version.ToString()
-        versionLabel = New Label()
-        versionLabel.Text = "Version: " & version
-        versionLabel.Location = New Point(20, 170)
-        versionLabel.AutoSize = True
-        Me.Controls.Add(versionLabel)
+            Me.Controls.Add(memoField)
+            Me.Controls.Add(authorLabel)
+            Me.Controls.Add(versionLabel)
+            Me.Controls.Add(sourceLabel)
+            Me.Controls.Add(hyperlink)
 
-        ' Create and configure hyperlink
-        hyperlink = New LinkLabel()
-        hyperlink.Text = "source code"
-        hyperlink.Location = New Point(20, 200)
-        hyperlink.AutoSize = True
-        AddHandler hyperlink.LinkClicked, AddressOf HyperlinkClicked
-        Me.Controls.Add(hyperlink)
+            AddHandler hyperlink.LinkClicked, AddressOf HyperlinkClicked
+            AddHandler Me.Load, AddressOf frmAbout_Load
+
+            WriteLog("info", "About form initialized successfully.")
+        Catch ex As Exception
+            WriteLog("error", $"Error initializing About form: {ex.Message}")
+            Throw
+        End Try
+    End Sub
+
+    Private Sub frmAbout_Load(sender As Object, e As EventArgs)
+        Try
+            WriteLog("info", "About form loaded.")
+            ' Clear selection from memoField - no more blue highlighted text
+            memoField.Select(0, 0)
+            Me.ActiveControl = Nothing
+        Catch ex As Exception
+            WriteLog("error", $"Error during About form load: {ex.Message}")
+        End Try
     End Sub
 
     Private Sub HyperlinkClicked(sender As Object, e As LinkLabelLinkClickedEventArgs)
-        Process.Start(New ProcessStartInfo("https://www.github.com/sjackson0109/camera-tray-app") With {
-            .UseShellExecute = True
-        })
-    End Sub
-
-End Class
-
-
-Public Class CameraTrayApp
-    Inherits ApplicationContext
-
-    Public ReadOnly InstallationPath As String = AppDomain.CurrentDomain.BaseDirectory
-    Public ReadOnly UserAppPath As String = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "\", _
-        Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)?.Company.ToString(), "\", _
-        Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyProductAttribute)?.Product.ToString())
-    Public ReadOnly UserLogPath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "\logs")
-
-    Public ReadOnly DefaultConfigFile As String = Path.Combine(InstallationPath, "\", "camera.config")
-    Public ReadOnly UserConfigFile As String = Path.Combine(UserAppPath, "\", "camera.config")
-    Public ReadOnly UserLogFile As String = Path.Combine(UserLogPath, "runtime.log")
-    Public Cameras As List(Of Config)
-    Public trayIcon As NotifyIcon
-
-    Public Sub New()
-        ' Initialize tray icon and context menu
-        trayIcon = New NotifyIcon() With {
-            .Icon = New Icon(Path.Combine(InstallationPath, "CameraTrayApp.ico")),
-            .Visible = True,
-            .Text = "Camera Tray App"
-        }
-
-        Dim contextMenu As New ContextMenuStrip()
-        contextMenu.Items.Add("Show Cameras", Nothing, AddressOf Show)
-        contextMenu.Items.Add("Configure", Nothing, AddressOf Configure)
-        contextMenu.Items.Add("About", Nothing, AddressOf About)
-        contextMenu.Items.Add("Exit", Nothing, AddressOf ExitApplication)
-
-        trayIcon.ContextMenuStrip = contextMenu
-
-        ' Load configuration on initialization
-        Load()
-    End Sub
-
-    Public Sub About()
         Try
-            Dim aboutBox As New AboutBox()
-            aboutBox.ShowDialog()
+            WriteLog("info", "Hyperlink clicked. Opening GitHub page.")
+            Process.Start(New ProcessStartInfo("https://github.com/sjackson0109/camera-tray-app") With { .UseShellExecute = True })
         Catch ex As Exception
-            WriteLog("error", "An error occurred while showing the About box.", ex)
-            MessageBox.Show("An error occurred while opening the About box. Details have been logged.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        End Try
-    End Sub
-
-
-    Public Sub Show(Optional sender As Object = Nothing, Optional e As EventArgs = Nothing)
-        Dim cameras = Load()
-        Dim cameraGridForm As New CameraGridForm(cameras)
-        cameraGridForm.Show()
-    End Sub
-
-    Public Sub Configure(Optional sender As Object = Nothing, Optional e As EventArgs = Nothing)
-        Dim configureForm As New ConfigureForm(Cameras)
-        Dim result = configureForm.ShowDialog()
-
-        If result = DialogResult.OK Then
-            ' Update and save configuration if the user clicks Save
-            cameras = configureForm.UpdatedCameras
-            Save()
-        End If
-    End Sub
-
-    Private Sub EnsureDirectoryExists(directoryPath As String)
-        If Not System.IO.Directory.Exists(directoryPath) Then
-            System.IO.Directory.CreateDirectory(directoryPath)
-        End If
-    End Sub
-
-    Private Sub ExitApplication(sender As Object, e As EventArgs)
-        trayIcon.Visible = False
-        Application.Exit()
-    End Sub
-
-    ' Load the configuration from file
-    Private Function Load() As List(Of Config)
-        Cameras = New List(Of Config)()
-        Try
-            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
-            ' Read and parse the configuration file
-            Dim json As String = File.ReadAllText(configFilePath)
-            Dim options As New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True}
-            Cameras = JsonSerializer.Deserialize(Of List(Of Config))(json, options)
-
-            WriteLog("info", $"Loaded {Cameras.Count} cameras successfully from '{configFilePath}'.")
-        Catch ex As Exception
-            ' Log and notify the user of any errors
-            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
-            WriteLog("error", $"Error loading configuration from '{configFilePath}'.", ex)
-            MessageBox.Show($"Error loading configuration. Details have been logged.", "Load Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
-        End Try
-
-        Return Cameras
-    End Function
-
-    ' Save the configuration to file
-    Private Sub Save()
-        Try
-            EnsureDirectoryExists(UserAppPath) ' Create the directory if necessary
-            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
-
-            Dim options As New JsonSerializerOptions With {.WriteIndented = True}
-            Dim updatedConfig As New With {.Cameras = Cameras}
-            File.WriteAllText(configFilePath, JsonSerializer.Serialize(updatedConfig, options))
-
-            WriteLog("info", $"Configuration successfully saved to '{configFilePath}'.")
-        Catch ex As Exception
-            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
-            WriteLog("error", $"Error saving configuration to '{configFilePath}'.", ex)
-            MessageBox.Show($"Error saving configuration. Details have been logged.", "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+            WriteLog("error", $"Error opening hyperlink: {ex.Message}")
         End Try
     End Sub
 End Class
 
-Public Class ConfigureForm
+
+Public Class frmConfig
     Inherits Form
 
-    Public Property UpdatedCameras As List(Of Config)
+    Public Property UpdatedCameras As IEnumerable(Of Object)
 
     Private Shadows saveButton As Button
     Private Shadows cancelButton As Button
     Private camerasTable As DataGridView
     Private memo As Label
 
-    Public Sub New(cameras As List(Of Config))
-        If cameras Is Nothing Then
-            Throw New ArgumentNullException(NameOf(cameras), "Cameras list cannot be null.")
-        End If
+    Public Sub New()
+        Try
+            LogUtility.WriteLog("trace", "Initializing Configure Cameras form...")
 
-        ' Initialize form
-        WriteLog("info", "Configure Cameras form opened")
-        Me.Text = "Configure Cameras"
-        Me.StartPosition = FormStartPosition.CenterScreen
-        Me.FormBorderStyle = FormBorderStyle.FixedDialog ' Make the form non-resizable
+            ' Initialize form
+            Dim config = ConfigUtility.LoadConfig()
+            Console.WriteLine($"Loaded config with {config.Cameras?.Count} cameras.")
 
-        ' Create Memo Label
-        memo = New Label() With {
-            .Text = "Please input the following information for each camera:" & Environment.NewLine &
-                    "- Name: A descriptive name for the camera." & Environment.NewLine &
-                    "- URL: The RTSP URL for the camera feed." & Environment.NewLine &
-                    "- Username: (Optional) RTSP username for the camera feed." & Environment.NewLine &
-                    "- Password: (Optional) RTSP password for the camera feed." & Environment.NewLine &
-                    "- X, Y: Coordinates for the camera feed placement." & Environment.NewLine &
-                    "- Width, Height: Dimensions of the camera feed window.",
-            .Dock = DockStyle.Top,
-            .AutoSize = True,
-            .Padding = New Padding(10)
-        }
-        Me.Controls.Add(memo)
+            Dim headerLabel As New Label() With {.Text = "Camera Configuration"}
+            Me.Text = "Configure Cameras"
+            Me.StartPosition = FormStartPosition.CenterScreen
+            Me.MinimumSize = New Size(845, 250)
 
-        ' Create DataGridView
-        camerasTable = New DataGridView() With {
-            .Dock = DockStyle.Top,
-            .AllowUserToAddRows = True,
-            .AllowUserToDeleteRows = True,
-            .AutoGenerateColumns = False
-        }
+            ' Create DataGridView
+            camerasTable = New DataGridView() With {
+                .Dock = DockStyle.Top, 
+                .Size = New Size(845, 120), 
+                .MaximumSize = New Size(845, 120), 
+                .AllowUserToAddRows = True, 
+                .AllowUserToDeleteRows = True, 
+                .AutoGenerateColumns = False,
+                .ScrollBars = ScrollBars.Vertical
+            }
+            LogUtility.WriteLog("trace", "DataGridView initialized.")
 
-        ' Add columns for the camera configuration
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "Name",
-            .DataPropertyName = "Name",
-            .Width = 120
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "URL",
-            .DataPropertyName = "Url",
-            .Width = 350
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "Username",
-            .DataPropertyName = "Username",
-            .Width = 80
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "Password",
-            .DataPropertyName = "Password",
-            .Width = 80
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "X",
-            .DataPropertyName = "X",
-            .Width = 30
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "Y",
-            .DataPropertyName = "Y",
-            .Width = 30
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "Width",
-            .DataPropertyName = "Width",
-            .Width = 45
-        })
-        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {
-            .HeaderText = "Height",
-            .DataPropertyName = "Height",
-            .Width = 50
-        })
+            ' Add columns dynamically based on configuration properties (width=785, plus left navigation columns)
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 120, .HeaderText = "Name", .DataPropertyName = "Name"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 350, .HeaderText = "URL", .DataPropertyName = "Url"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 80, .HeaderText = "Username", .DataPropertyName = "Username"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 80, .HeaderText = "Password", .DataPropertyName = "Password"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 30, .HeaderText = "X", .DataPropertyName = "X"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 30, .HeaderText = "Y", .DataPropertyName = "Y"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 45, .HeaderText = "Width", .DataPropertyName = "Width"})
+            camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.Width = 50, .HeaderText = "Height", .DataPropertyName = "Height"})
 
-        ' Bind cameras to the DataGridView
-        camerasTable.DataSource = New BindingSource() With {
-            .DataSource = cameras
-        }
-        Me.Controls.Add(camerasTable)
+            ' Bind cameras to the DataGridView
+            Dim bindingSource As New BindingSource()
+            bindingSource.DataSource = config.Cameras
+            camerasTable.DataSource = bindingSource
+            Me.Controls.Add(camerasTable)
+            LogUtility.WriteLog("trace", "DataGridView columns and binding completed.")
 
-        ' Create Save Button
-        saveButton = New Button() With {
-            .Text = "Save",
-            .Dock = DockStyle.Bottom
-        }
-        AddHandler saveButton.Click, AddressOf OnSave
-        Me.Controls.Add(saveButton)
+            ' Add additional information label
+            Dim infoLabel As New Label() With {
+                .Dock = DockStyle.None,
+                .Location = New Point(10, 120), .AutoSize = True, 
+                .Text = "Please input the following information for each camera:" & vbCrLf &
+                        "- Name: A descriptive name for the camera." & vbCrLf &
+                        "- URL: The RTSP URL for the camera feed." & vbCrLf &
+                        "- Protocol: TCP or UDP (default)." & vbCrLf &
+                        "- Username: (Optional) RTSP username for the camera feed." & Environment.NewLine &
+                        "- Password: (Optional) RTSP password for the camera feed." & Environment.NewLine &
+                        "- X, Y: Coordinates for the camera feed placement." & Environment.NewLine &
+                        "- Width, Height: Dimensions of the camera feed window."
+            }
+            Me.Controls.Add(infoLabel)
+            LogUtility.WriteLog("trace", "Information label added.")
 
-        ' Create Cancel Button
-        cancelButton = New Button() With {
-            .Text = "Cancel",
-            .Dock = DockStyle.Bottom
-        }
-        AddHandler cancelButton.Click, AddressOf OnCancel
-        Me.Controls.Add(cancelButton)
+            ' Add Save and Cancel buttons
+            Dim buttonPanel As New FlowLayoutPanel() With {
+                .Dock = DockStyle.Bottom,
+                .FlowDirection = FlowDirection.RightToLeft,
+                .Height = 30
+            }
+            saveButton = New Button() With {.Text = "Save"}
+            cancelButton = New Button() With {.Text = "Cancel"}
+            
+            AddHandler saveButton.Click, AddressOf OnSave
+            AddHandler cancelButton.Click, AddressOf OnCancel
 
-        ' Set form dimensions
-        AdjustFormSize(camerasTable, memo)
+            buttonPanel.Controls.AddRange(New Control() {saveButton, cancelButton})
+            Me.Controls.Add(buttonPanel)
+            LogUtility.WriteLog("trace", "Save and Cancel buttons added.")
 
-        ' Clone the cameras for editing
-        Me.UpdatedCameras = cameras.Select(Function(c) New Config() With {
-            .Name = c.Name,
-            .Url = c.Url,
-            .Username = c.Username,
-            .Password = c.Password,
-            .X = If(c.X, 600),
-            .Y = If(c.Y, 600),
-            .Width = If(c.Width, 640),
-            .Height = If(c.Height, 480)
-        }).ToList()
+            ' Set form dimensions
+            AdjustFormSize(camerasTable, headerLabel)
+            LogUtility.WriteLog("trace", "Form size adjusted.")
+
+            ' Clone the cameras for editing
+            Me.UpdatedCameras = If(config?.Cameras IsNot Nothing,
+                config.Cameras.Select(Function(c)
+                    Return New Dictionary(Of String, Object) From { {"Name", c.Name}, {"Url", c.Url},{"Protocol", c.Protocol}, {"Username", c.Username}, {"Password", c.Password}, {"X", c.X}, {"Y", c.Y}, {"Width", c.Width}, {"Height", c.Height} }
+                End Function).Cast(Of Object).ToList(),
+                New List(Of Object)())
+            LogUtility.WriteLog("trace", "Cameras cloned for editing.")
+
+        Catch ex As Exception
+            msgbox("Error initializing Configure Cameras form: {ex.Message}", vbOKOnly, "error")
+            LogUtility.WriteLog("error", $"Error initializing Configure Cameras form: {ex.Message}")
+            Throw
+        End Try
     End Sub
 
     Private Sub AdjustFormSize(dataGrid As DataGridView, headerLabel As Label)
-        ' Calculate the total column widths
-        Dim totalColumnWidth As Integer = dataGrid.Columns.Cast(Of DataGridViewColumn)().Sum(Function(col) col.Width)
-        Dim actionColumnWidth As Integer = 20 ' Width for the action column on the left
-        Dim padding As Integer = 40 ' Extra space for borders and scrollbars
-        Dim estimatedRowHeight As Integer = 24 ' Approximate height for each row
-        Dim rowCount As Integer = Math.Max(dataGrid.Rows.Count, 5) ' Ensure a minimum of 5 rows are displayed
-
-        ' Set form dimensions
-        Me.Width = totalColumnWidth + actionColumnWidth + padding
-        Me.Height = headerLabel.Height + (rowCount * estimatedRowHeight) + saveButton.Height + cancelButton.Height + 80
-        dataGrid.Height = rowCount * estimatedRowHeight
+        Try
+            If dataGrid Is Nothing Then Throw New ArgumentNullException(NameOf(dataGrid), "DataGridView cannot be null.")
+            If headerLabel Is Nothing Then Throw New ArgumentNullException(NameOf(headerLabel), "HeaderLabel cannot be null.")
+            ' Adjust form size logic here
+            headerLabel.Width = Me.ClientSize.Width
+            dataGrid.Width = Me.ClientSize.Width
+            dataGrid.Height = Me.ClientSize.Height - headerLabel.Height
+            LogUtility.WriteLog("trace", "Form size adjusted in AdjustFormSize method.")
+        Catch ex As Exception
+            LogUtility.WriteLog("error", $"Error in AdjustFormSize: {ex.Message}")
+            Throw
+        End Try
     End Sub
 
     Private Sub OnSave(sender As Object, e As EventArgs)
-        ' Commit changes and close the form
-        Me.UpdatedCameras = CType(camerasTable.DataSource, BindingSource).List.Cast(Of Config).ToList()
-        Me.DialogResult = DialogResult.OK ' Mark the form result as "OK"
-        WriteLog("info", "Camera Configuration SAVED")
-        Me.Close()
+        Try
+            ' Save updates to cameras
+            Me.UpdatedCameras = CType(camerasTable.DataSource, BindingSource).List.Cast(Of Object).ToList()
+            Me.DialogResult = DialogResult.OK
+            LogUtility.WriteLog("info", "Camera Configuration SAVED")
+            Me.Close()
+        Catch ex As Exception
+            LogUtility.WriteLog("error", $"Error saving camera configuration: {ex.Message}")
+            Throw
+        End Try
     End Sub
 
     Private Sub OnCancel(sender As Object, e As EventArgs)
-        ' Discard changes and close the form
-        Me.DialogResult = DialogResult.Cancel ' Mark the form result as "Cancel"
-        WriteLog("info", "Camera Configuration CANCELLED")
-        Me.Close()
+        Try
+            ' Discard changes and close the form
+            Me.DialogResult = DialogResult.Cancel
+            LogUtility.WriteLog("info", "Camera Configuration CANCELLED")
+            Me.Close()
+        Catch ex As Exception
+            LogUtility.WriteLog("error", $"Error cancelling camera configuration: {ex.Message}")
+            Throw
+        End Try
     End Sub
 
 End Class
 
-Public Class CameraGridForm
+
+Public Class frmShow
     Inherits Form
 
     ' Declare necessary external functions
@@ -449,35 +352,32 @@ Public Class CameraGridForm
 
     Private Const GWL_STYLE As Integer = -16
     Private Const WS_VISIBLE As Integer = &H10000000
-
-
     Private Delegate Function EnumWindowsProc(hWnd As IntPtr, lParam As IntPtr) As Boolean
-
-    Private ReadOnly Cameras As List(Of Config)
+    Private ReadOnly Cameras As List(Of Object)
     Private ffplayProcesses As New List(Of Process)()
 
-    Public Sub New(cameras As List(Of Config))
+    Public Sub New()
         Try
-            WriteLog("info", "Initializing CameraGridForm.")
-
-            Me.Cameras = cameras
+            Dim config = ConfigUtility.LoadConfig()
+            If config Is Nothing Then
+                Throw New Exception("Configuration file is invalid or missing camera data.")
+            End If
+            Me.Cameras = config.Cameras.Cast(Of Object).ToList()
+            WriteLog("info", "Initializing frmShow.")
             Me.Text = "Camera Feeds"
             Me.StartPosition = FormStartPosition.CenterScreen
             Me.WindowState = FormWindowState.Normal ' Starting state
             Me.FormBorderStyle = FormBorderStyle.SizableToolWindow ' Remove border and buttons
-
             If Cameras.Count <= 1 Then
                 Me.Size = New Size(800, 580)
             Else
                 Me.Size = CalculateGridSize()
             End If
-
             AddHandler Me.Resize, AddressOf OnFormResize
-
             SetupGrid()
-            WriteLog("info", "CameraGridForm initialized successfully.")
+            WriteLog("info", "frmShow initialized successfully.")
         Catch ex As Exception
-            WriteLog("error", $"Error initializing CameraGridForm: {ex.Message}", ex)
+            WriteLog("error", $"Error initializing frmShow: {ex.Message}")
             Throw
         End Try
     End Sub
@@ -485,42 +385,33 @@ Public Class CameraGridForm
     Private Sub SetupGrid()
         Try
             WriteLog("info", "Setting up grid.")
-
-            ' Clear previous controls
-            Me.Controls.Clear()
-
+            If Cameras Is Nothing OrElse Cameras.Count = 0 Then ' Check if Cameras has records
+                Throw New InvalidOperationException("No cameras configured. Please add camera records in the configuration.")
+            End If
+            Me.Controls.Clear() ' Clear previous controls
             Dim columns As Integer = If(Cameras.Count = 1, 1, Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))))
             Dim rows As Integer = If(Cameras.Count = 1, 1, CInt(Math.Ceiling(Cameras.Count / columns)))
-
             Dim panelWidth As Integer = Me.ClientSize.Width \ columns
             Dim panelHeight As Integer = Me.ClientSize.Height \ rows
-
-            For i As Integer = 0 To Cameras.Count - 1
-                Dim camera = Cameras(i)
-                Dim panel As New Panel With {
-                    .Width = panelWidth,
-                    .Height = panelHeight,
-                    .Left = (i Mod columns) * panelWidth,
-                    .Top = (i \ columns) * panelHeight,
-                    .BackColor = Color.Black ' Set default background
-                }
+            For i As Integer = 0 To Cameras.Count - 1 ' looping through configured camera configs
+                Dim camera As CameraConfig = DirectCast(Cameras(i), CameraConfig)
+                Dim panel As New Panel With { .Width = panelWidth, .Height = panelHeight, .Left = (i Mod columns) * panelWidth, .Top = (i \ columns) * panelHeight, .BackColor = Color.Black }
                 Me.Controls.Add(panel)
-
-                Dim rtspUrl As String = ConstructRtspUrl(camera)
-                StartFFplay(rtspUrl, panel, camera.Name)
+                StartFFplay(camera, panel,"") '3rd parameter includes optional parameters for ffplay.exe
+                'StartFFplay(rtspUrl, panel, Cameras(i).Name)
             Next
 
             WriteLog("info", "SetupGrid completed successfully.")
+        Catch ex As InvalidOperationException
+            WriteLog("error", ex.Message)
+            MessageBox.Show(ex.Message, "Configuration Error", MessageBoxButtons.OK, MessageBoxIcon.Warning)
         Catch ex As Exception
-            WriteLog("error", $"Error in SetupGrid: {ex.Message}", ex)
+            WriteLog("error", $"Error setting up grid: {ex.Message}")
             Throw
         End Try
     End Sub
-
     Private Sub OnFormResize(sender As Object, e As EventArgs)
         Try
-            WriteLog("info", "Form resized. Adjusting grid.")
-
             Dim columns As Integer = If(Cameras.Count = 1, 1, Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))))
             Dim rows As Integer = If(Cameras.Count = 1, 1, CInt(Math.Ceiling(Cameras.Count / columns)))
 
@@ -528,24 +419,24 @@ Public Class CameraGridForm
             Dim panelHeight As Integer = Me.ClientSize.Height \ rows
 
             For i As Integer = 0 To Cameras.Count - 1
-                Dim panel = Me.Controls(i)
-                If TypeOf panel Is Panel Then
+                Dim panel = DirectCast(Me.Controls(i), Panel)
+                If panel IsNot Nothing Then
                     panel.Width = panelWidth
                     panel.Height = panelHeight
                     panel.Left = (i Mod columns) * panelWidth
                     panel.Top = (i \ columns) * panelHeight
 
-                    Dim handle = FindWindowByPartialTitle(Cameras(i).Name)
+                    Dim camera As CameraConfig = DirectCast(Cameras(i), CameraConfig)
+                    Dim handle = FindWindowByPartialTitle(camera.Name)
                     If handle <> IntPtr.Zero Then
                         MoveWindow(handle, 0, 0, panel.Width, panel.Height, True)
                     End If
                 End If
             Next
         Catch ex As Exception
-            WriteLog("error", $"Error resizing grid: {ex.Message}", ex)
+            WriteLog("error", $"Error resizing grid: {ex.Message}")
         End Try
     End Sub
-
     Private Function CalculateGridSize() As Size
         ' Default to 800x600 for single feed or calculate based on grid
         If Cameras.Count = 1 Then
@@ -562,79 +453,73 @@ Public Class CameraGridForm
 
         Return New Size(totalWidth, totalHeight)
     End Function
-
-    Private Function ConstructRtspUrl(camera As Config) As String
+    Public Sub GenerateRtspUrls(cameras As List(Of Object))
+        For Each cameraObj In cameras
+            Dim camera As CameraConfig = DirectCast(cameraObj, CameraConfig)
+            Dim rtspUrl As String = ConstructRtspUrl(camera)
+            Console.WriteLine($"RTSP URL for {camera.Name}: {rtspUrl}")
+        Next
+    End Sub
+    Private Function ConstructRtspUrl(camera As CameraConfig) As String
         Dim uri As New Uri(camera.Url)
         Dim port As Integer = If(uri.IsDefaultPort, 554, uri.Port)
         Return $"{uri.Scheme}://{camera.Username}:{camera.Password}@{uri.Host}:{port}{uri.PathAndQuery}"
     End Function
-
-    Private Sub StartFFplay(rtspUrl As String, targetPanel As Panel, cameraName As String)
+    'Private Sub StartFFplay(rtspUrl As String, targetPanel As Panel, cameraName As String, Optional additionalArgs As String = "")
+    Private Sub StartFFplay(camera As CameraConfig, targetPanel As Panel, Optional additionalArgs As String = "")
         Try
-            Dim ffplayPath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lib", "ffplay.exe")
-
+            Dim ffplayPath As String = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lib", "ffplay.exe")
             ' Verify if ffplay.exe exists
             If Not File.Exists(ffplayPath) Then
                 WriteLog("error", $"ffplay executable not found at path '{ffplayPath}'")
                 Throw New FileNotFoundException($"ffplay not found: {ffplayPath}")
             End If
-
+            Dim protocol As String = If(String.IsNullOrEmpty(camera.Protocol), "udp", camera.Protocol)
             Dim ffplayProcess As New Process()
             ffplayProcess.StartInfo.FileName = ffplayPath
-            ffplayProcess.StartInfo.Arguments = $"-rtsp_transport tcp -i ""{rtspUrl}"" -window_title ""{cameraName}"" -noborder"
+            ' Add additional parameters dynamically
+            ffplayProcess.StartInfo.Arguments = $"-rtsp_transport {protocol} -i ""{ConstructRtspUrl(camera)}"" -window_title ""{camera.Name}"" -noborder {additionalArgs}"
             ffplayProcess.StartInfo.UseShellExecute = False
             ffplayProcess.StartInfo.RedirectStandardOutput = False
             ffplayProcess.StartInfo.CreateNoWindow = True
             ffplayProcess.StartInfo.WindowStyle = ProcessWindowStyle.Hidden
-
             ffplayProcess.Start()
             ffplayProcesses.Add(ffplayProcess)
-
-            WriteLog("info", $"Started ffplay process for camera '{cameraName}' with PID {ffplayProcess.Id}")
-            AnchorFFplayWindow(ffplayProcess, targetPanel, cameraName)
+            WriteLog("info", $"Started ffplay process for camera '{camera.Name}' with PID {ffplayProcess.Id}")
+            AnchorFFplayWindow(ffplayProcess, targetPanel, camera.Name)
         Catch ex As Exception
-            WriteLog("error", $"Error starting ffplay for camera '{cameraName}': {ex.Message}", ex)
+            WriteLog("error", $"Error starting ffplay for camera '{camera.Name}': {ex.Message}")
         End Try
     End Sub
 
     Private Sub AnchorFFplayWindow(ffplayProcess As Process, targetPanel As Panel, cameraName As String)
         Try
             WriteLog("info", $"Attempting to anchor ffplay window for camera '{cameraName}'")
-
             Dim handle As IntPtr = IntPtr.Zero
             Dim retries As Integer = 20
             Dim delay As Integer = 1000
-
             For attempt As Integer = 1 To retries
                 handle = FindWindowByPartialTitle(cameraName)
                 If handle <> IntPtr.Zero Then
                     WriteLog("info", $"Found ffplay window for camera '{cameraName}' on attempt {attempt}")
                     Exit For
                 End If
-                'WriteLog("debug", $"Retry {attempt}/{retries}: No matching window found yet for camera '{cameraName}'")
                 Threading.Thread.Sleep(delay)
             Next
-
             If handle = IntPtr.Zero Then
                 Throw New Exception($"Failed to find ffplay window containing title '{cameraName}'.")
             End If
-
             ' Remove ffplay's window borders
             SetWindowLong(handle, GWL_STYLE, WS_VISIBLE)
-
             ' Set the parent to the target panel
-            'SetParent(handle, targetPanel.Handle)
             Dim parentResult = SetParent(handle, targetPanel.Handle)
             If parentResult = IntPtr.Zero Then
                 WriteLog("error", $"SetParent failed for camera '{cameraName}' with error code {Marshal.GetLastWin32Error()}")
             Else
                 WriteLog("debug", $"SetParent succeeded for camera '{cameraName}'")
             End If
-
             ' Allow ffplay to adjust before setting the position and size
             Threading.Thread.Sleep(500)
-
-            'MoveWindow(handle, 0, 0, targetPanel.Width, targetPanel.Height, True)
             Dim moveResult = MoveWindow(handle, 0, 0, targetPanel.Width, targetPanel.Height, True)
             If Not moveResult Then
                 WriteLog("error", $"MoveWindow failed for camera '{cameraName}' with error code {Marshal.GetLastWin32Error()}")
@@ -643,21 +528,16 @@ Public Class CameraGridForm
             End If
 
             WriteLog("info", $"Successfully anchored ffplay window for camera '{cameraName}'")
-
-            ' Log debug information for MoveWindow dimensions
             WriteLog("debug", $"MoveWindow dimensions: {targetPanel.Width}x{targetPanel.Height}")
         Catch ex As Exception
-            WriteLog("error", $"Error anchoring ffplay window for camera '{cameraName}': {ex.Message}", ex)
+            WriteLog("error", $"Error anchoring ffplay window for camera '{cameraName}': {ex.Message}")
         End Try
     End Sub
-
 
     Private Function FindWindowByPartialTitle(partialTitle As String) As IntPtr
         Dim foundHandle As IntPtr = IntPtr.Zero
         Dim allTitles As New List(Of String)
-
-        WriteLog("debug", $"Looking for window title containing '{partialTitle}'. Detected window titles: {String.Join(", ", allTitles)}")
-
+        WriteLog("debug", $"Looking for window title containing '{partialTitle}'.")
         EnumWindows(Function(hWnd, lParam)
                         Dim title As New System.Text.StringBuilder(256)
                         GetWindowText(hWnd, title, title.Capacity)
@@ -671,7 +551,6 @@ Public Class CameraGridForm
                         Return True
                     End Function, IntPtr.Zero)
 
-        ' Log all detected window titles
         WriteLog("debug", $"Detected window titles: {String.Join(", ", allTitles)}")
         Return foundHandle
     End Function
@@ -684,46 +563,236 @@ Public Class CameraGridForm
         Next
         MyBase.OnFormClosing(e)
     End Sub
-
 End Class
 
-Public Class TrayIconManager
-    Private trayIcon As NotifyIcon
-    Private cameraApp As CameraTrayApp
 
+Public Class CameraTrayApp
+    Inherits ApplicationContext
+    Public ReadOnly InstallationPath As String = AppDomain.CurrentDomain.BaseDirectory
+    Public Cameras As List(Of Object)
+    Public SystemTrayIcon As NotifyIcon
     Public Sub New()
-        cameraApp = New CameraTrayApp()
+        Try
+            LogUtility.WriteLog("info", "Initializing SystemTrayIcon.")
 
-        trayIcon = New NotifyIcon() With {
-            .Icon = New Icon("CameraTrayApp.ico"),
-            .Visible = True,
-            .Text = Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyTitleAttribute)()?.Title.ToString()
-        }
+            ' Initialize tray icon and context menu
+            SystemTrayIcon = New NotifyIcon() With { 
+                .Icon = New Icon(System.IO.Path.Combine(InstallationPath, "CameraTrayApp.ico")), 
+                .Text = "Camera Tray App", 
+                .Visible = True 
+            }
+            LogUtility.WriteLog("debug", "Tray icon created successfully.")
+
+            Dim contextMenu As New ContextMenuStrip()
+            contextMenu.Items.Add("Show", Nothing, AddressOf btnShow)
+            contextMenu.Items.Add("Configure", Nothing, AddressOf btnConfig)
+            contextMenu.Items.Add("About", Nothing, AddressOf btnAbout)
+            contextMenu.Items.Add("Exit", Nothing, AddressOf btnExit)
+            SystemTrayIcon.ContextMenuStrip = contextMenu
+
+            LogUtility.WriteLog("info", "Tray icon and context menu setup completed.")
+        Catch ex As Exception
+            LogUtility.WriteLog("error", $"Error during tray icon initialization: {ex.Message}")
+            Throw
+        End Try
+    End Sub
+
+    Public Sub btnAbout()
+        Try
+            LogUtility.WriteLog("info", "btnAbout invoked.")
+            Dim About As New frmAbout()
+            About.ShowDialog()
+            LogUtility.WriteLog("info", "About dialog displayed successfully.")
+        Catch ex As Exception
+            LogUtility.WriteLog("error", "An error occurred while showing the About box: " & ex.Message)
+            MessageBox.Show("An error occurred while opening the About box. Details have been logged.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
+
+    Public Sub btnShow(Optional sender As Object = Nothing, Optional e As EventArgs = Nothing)
+        Try
+            LogUtility.WriteLog("info", "btnShow invoked.")
+            Dim frmShow As New frmShow()
+            frmShow.Show()
+            LogUtility.WriteLog("info", "frmShow displayed successfully.")
+        Catch ex As Exception
+            LogUtility.WriteLog("error", "An error occurred while showing frmShow: " & ex.Message)
+            MessageBox.Show("An error occurred while opening the Camera Feeds window. Details have been logged.", "Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
+
+    Public Sub btnConfig(Optional sender As Object = Nothing, Optional e As EventArgs = Nothing)
+        LogUtility.WriteLog("info", "btnConfig invoked.")
+        Dim frmConfig As New frmConfig()
+        Dim result = frmConfig.ShowDialog()
+
+        If result = DialogResult.OK Then
+            LogUtility.WriteLog("info", "DialogResult is OK. Saving configuration.")
+            ' Update and save configuration if the user clicks Save
+            Dim config As New ConfigData With { .Cameras = frmConfig.UpdatedCameras.Cast(Of CameraConfig).ToList() }
+            ConfigUtility.SaveConfig(config)
+        Else
+            LogUtility.WriteLog("info", "DialogResult is not OK. No changes saved.")
+        End If
+
+        LogUtility.WriteLog("info", "btnConfig completed.")
+    End Sub
+
+    Private Sub btnExit(sender As Object, e As EventArgs)
+        LogUtility.WriteLog("info", "btnExit invoked. Application exiting.")
+        SystemTrayIcon.Visible = False
+        Application.Exit()
+    End Sub
+
+    
+
+    ' Recursive helper function to ensure all levels of the directory exist
+    Public Sub EnsureDirectoryRecursive(dir As String)
+        If String.IsNullOrEmpty(dir) OrElse System.IO.Directory.Exists(dir) Then
+            Return ' Base case: Stop if the directory exists or is invalid
+        End If
+
+        ' Recurse to ensure the parent directory exists
+        Dim parentDirectory As String = System.IO.Path.GetDirectoryName(dir)
+        EnsureDirectoryRecursive(parentDirectory)
+
+        ' Create the current directory after parent is ensured
+        System.IO.Directory.CreateDirectory(dir)
+    End Sub
+
+    Public Sub EnsureDirectoryExists(filePath As String)
+        Try
+            ' Extract the target directory
+            Dim directory As String = System.IO.Path.GetDirectoryName(filePath)
+
+            ' Ensure the target directory recursively
+            EnsureDirectoryRecursive(directory)
+        Catch ex As Exception
+            ' Log or handle errors as needed
+            Throw
+        End Try
     End Sub
 
 End Class
 
-Public Class Config
+Public Class CameraConfig
     Public Property Name As String
     Public Property Url As String
+    Public Property Protocol As String
     Public Property Username As String
     Public Property Password As String
-    Public Property X As Integer?
-    Public Property Y As Integer?
-    Public Property Width As Integer?
-    Public Property Height As Integer?
-
-    Public Sub New()
-    End Sub
-
-    Public Sub New(name As String, url As String, username As String, password As String, x As Integer?, y As Integer?, width As Integer?, height As Integer?)
-        Me.Name = name
-        Me.Url = url
-        Me.Username = username
-        Me.Password = password
-        Me.X = x
-        Me.Y = y
-        Me.Width = width
-        Me.Height = height
-    End Sub
+    Public Property X As Integer
+    Public Property Y As Integer
+    Public Property Width As Integer
+    Public Property Height As Integer
 End Class
+
+Public Class ConfigData
+    Public Property Cameras As List(Of CameraConfig)
+    Public Property debugLevel As String
+End Class
+
+Public Module ConfigUtility
+    Public ReadOnly InstallPath As String = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "cameras.config")
+    Public ReadOnly AppDataPath As String = System.IO.Path.Combine(GetFolderPath(SpecialFolder.ApplicationData), Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)?.Company.ToString(), "CameraTrayApp", "cameras.config")
+
+    Public Function GetConfigFilePath() As String
+        ' Check for config file in AppData first, then fallback to installation directory
+        If File.Exists(AppDataPath) Then Return AppDataPath
+        If File.Exists(InstallPath) Then Return InstallPath
+        Return AppDataPath ' Default save location
+    End Function
+
+
+
+    Public Sub EnsureDirectoryExists(configFilePath As String)
+        Try
+            ' Extract the target directory and parent directory from configFilePath
+            Dim directory As String = System.IO.Path.GetDirectoryName(configFilePath)
+            Dim parentDirectory As String = System.IO.Path.GetDirectoryName(directory)
+
+            ' Ensure the parent directory exists
+            If Not String.IsNullOrEmpty(parentDirectory) AndAlso Not System.IO.Directory.Exists(parentDirectory) Then
+                System.IO.Directory.CreateDirectory(parentDirectory)
+            End If
+
+            ' Ensure the target directory exists
+            If Not System.IO.Directory.Exists(directory) Then
+                System.IO.Directory.CreateDirectory(directory)
+            End If
+        Catch ex As Exception
+            ' Log or handle errors as needed
+            Throw
+        End Try
+    End Sub
+   
+    Private Function DefaultConfig() As ConfigData
+        LogUtility.WriteLog("info", "Generating default configuration.")
+        Return New ConfigData With {
+            .Cameras = New List(Of CameraConfig)(),
+            .debugLevel = "info"
+        }
+    End Function
+
+
+    Public Sub SaveConfig(config As ConfigData)
+        Try
+            ' Get the path for the configuration file
+            Dim configFilePath As String = GetConfigFilePath()
+            LogUtility.WriteLog("info", $"Saving configuration to: {configFilePath}")
+
+            ' Ensure the directory exists
+            EnsureDirectoryExists(configFilePath)
+
+            ' Serialize the configuration object to JSON
+            Dim options As New JsonSerializerOptions With {.WriteIndented = True}
+            Dim json As String = JsonSerializer.Serialize(config, options)
+
+            ' Write the serialized JSON to the configuration file
+            File.WriteAllText(configFilePath, json)
+            LogUtility.WriteLog("info", $"Configuration saved successfully to: {configFilePath}")
+        Catch ex As Exception
+            LogUtility.WriteLog("error", $"Failed to save configuration: {ex.Message}")
+            Throw
+        End Try
+    End Sub
+
+
+    Public Function LoadConfig() As ConfigData
+        Try
+            Dim configFilePath As String = GetConfigFilePath()
+            LogUtility.WriteLog("debug", $"Loading configuration file: '{configFilePath}'")
+
+            ' Check if the configuration file exists
+            If Not System.IO.File.Exists(configFilePath) Then
+                LogUtility.WriteLog("warning", $"Configuration file not found at '{configFilePath}'. Returning default configuration.")
+                Return DefaultConfig()
+            End If
+
+            ' Read and deserialize configuration
+            Dim json As String = File.ReadAllText(configFilePath)
+            LogUtility.WriteLog("debug", $"Configuration file read successfully. JSON content length: {json.Length}")
+
+            Dim config As ConfigData = JsonSerializer.Deserialize(Of ConfigData)(json)
+            If config Is Nothing Then
+                Throw New Exception("Configuration deserialization returned null.")
+            End If
+
+            ' Ensure debugLevel is set, default to "info" if missing
+            If String.IsNullOrEmpty(config.debugLevel) Then
+                config.debugLevel = "info"
+            End If
+
+            LogUtility.WriteLog("info", $"Loaded configuration with {config.Cameras.Count} cameras and debug level '{config.debugLevel}'.")
+            Return config
+        Catch ex As JsonException
+            LogUtility.WriteLog("error", $"JSON error while loading configuration: {ex.Message}")
+            Return DefaultConfig()
+        Catch ex As Exception
+            LogUtility.WriteLog("error", $"Error loading configuration: {ex.Message}")
+            Return DefaultConfig()
+        End Try
+    End Function
+
+
+End Module

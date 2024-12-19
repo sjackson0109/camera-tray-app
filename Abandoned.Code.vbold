@@ -1,0 +1,582 @@
+    ' Save the configuration to file
+    Private Sub Save()
+        Try
+            EnsureDirectoryExists(UserAppPath) ' Create the directory if necessary
+            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
+
+            Dim options As New JsonSerializerOptions With {.WriteIndented = True}
+            Dim updatedConfig As New With {.Cameras = Cameras}
+            File.WriteAllText(configFilePath, JsonSerializer.Serialize(updatedConfig, options))
+
+            WriteLog("info", $"Configuration successfully saved to '{configFilePath}'.")
+        Catch ex As Exception
+            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
+            WriteLog("error", $"Error saving configuration to '{configFilePath}'.")
+            MessageBox.Show($"Error saving configuration. Details have been logged.", "Save Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+    End Sub
+
+        ' Load the configuration from file
+    Private Function Load() As List(Of Config)
+        Cameras = New List(Of Config)()
+        Try
+            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
+            ' Read and parse the configuration file
+            Dim json As String = File.ReadAllText(configFilePath)
+            Dim options As New JsonSerializerOptions With {.PropertyNameCaseInsensitive = True}
+            Cameras = JsonSerializer.Deserialize(Of List(Of Config))(json, options)
+
+            WriteLog("info", $"Loaded {Cameras.Count} cameras successfully from '{configFilePath}'.")
+        Catch ex As Exception
+            ' Log and notify the user of any errors
+            Dim configFilePath As String = If(File.Exists(UserAppPath & "cameras.config"), UserAppPath & "cameras.config", InstallationPath & "cameras.config")
+            WriteLog("error", $"Error loading configuration from '{configFilePath}'.")
+            MessageBox.Show($"Error loading configuration. Details have been logged.", "Load Error", MessageBoxButtons.OK, MessageBoxIcon.Error)
+        End Try
+
+        Return Cameras
+    End Function
+
+
+
+
+
+    Public Class Config
+    Public Property Name As String
+    Public Property Url As String
+    Public Property Protocol As String
+    Public Property Username As String
+    Public Property Password As String
+    Public Property X As Integer?
+    Public Property Y As Integer?
+    Public Property Width As Integer?
+    Public Property Height As Integer?
+
+    Public Sub New()
+    End Sub
+
+    Public Sub New(name As String, url As String, username As String, protocol As String, password As String, x As Integer?, y As Integer?, width As Integer?, height As Integer?)
+        Me.Name = name
+        Me.Url = url
+        Me.Protocol = protocol
+        Me.Username = username
+        Me.Password = password
+        Me.X = x
+        Me.Y = y
+        Me.Width = width
+        Me.Height = height
+    End Sub
+End Class
+
+
+
+
+
+Public Class frmConfigure
+    Inherits Form
+
+    Public Property UpdatedCameras As List(Of Object)
+
+    Private Shadows saveButton As Button
+    Private Shadows cancelButton As Button
+    Private camerasTable As DataGridView
+    Private memo As Label
+
+    Public Sub New(cameras As List(Of Object))
+        If cameras Is Nothing Then
+            Throw New ArgumentNullException(NameOf(cameras), "Cameras list cannot be null.")
+        End If
+
+        ' Initialize form
+        LogUtility.WriteLog("info", "Configure Cameras form opened")
+        Me.Text = "Configure Cameras"
+        Me.StartPosition = FormStartPosition.CenterScreen
+        Me.FormBorderStyle = FormBorderStyle.FixedDialog ' Make the form non-resizable
+
+        ' Create Memo Label
+        memo = New Label() With {
+            .Text = "Please input the following information for each camera:" & Environment.NewLine &
+                    "- Name: A descriptive name for the camera." & Environment.NewLine &
+                    "- URL: The RTSP URL for the camera feed." & Environment.NewLine &
+                    "- Username: (Optional) RTSP username for the camera feed." & Environment.NewLine &
+                    "- Password: (Optional) RTSP password for the camera feed." & Environment.NewLine &
+                    "- X, Y: Coordinates for the camera feed placement." & Environment.NewLine &
+                    "- Width, Height: Dimensions of the camera feed window.",
+            .Dock = DockStyle.Top,
+            .AutoSize = True,
+            .Padding = New Padding(10)
+        }
+        Me.Controls.Add(memo)
+
+        ' Create DataGridView
+        camerasTable = New DataGridView() With {
+            .Dock = DockStyle.Top,
+            .AllowUserToAddRows = True,
+            .AllowUserToDeleteRows = True,
+            .AutoGenerateColumns = False
+        }
+
+        ' Add columns dynamically based on configuration properties
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "Name", .DataPropertyName = "Name", .Width = 120})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "URL", .DataPropertyName = "Url", .Width = 350})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "Username", .DataPropertyName = "Username", .Width = 80})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "Password", .DataPropertyName = "Password", .Width = 80})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "X", .DataPropertyName = "X", .Width = 30})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "Y", .DataPropertyName = "Y", .Width = 30})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "Width", .DataPropertyName = "Width", .Width = 45})
+        camerasTable.Columns.Add(New DataGridViewTextBoxColumn() With {.HeaderText = "Height", .DataPropertyName = "Height", .Width = 50})
+
+        ' Bind cameras to the DataGridView
+        camerasTable.DataSource = New BindingSource() With {
+            .DataSource = cameras
+        }
+        Me.Controls.Add(camerasTable)
+
+        ' Create Save Button
+        saveButton = New Button() With {
+            .Text = "Save",
+            .Dock = DockStyle.Bottom
+        }
+        AddHandler saveButton.Click, AddressOf OnSave
+        Me.Controls.Add(saveButton)
+
+        ' Create Cancel Button
+        cancelButton = New Button() With {
+            .Text = "Cancel",
+            .Dock = DockStyle.Bottom
+        }
+        AddHandler cancelButton.Click, AddressOf OnCancel
+        Me.Controls.Add(cancelButton)
+
+        ' Set form dimensions
+        AdjustFormSize(camerasTable, memo)
+
+        ' Clone the cameras for editing
+        Me.UpdatedCameras = cameras.Select(Function(c) New With {
+            Key .Name = c("Name"),
+            Key .Url = c("Url"),
+            Key .Username = c("Username"),
+            Key .Password = c("Password"),
+            Key .X = If(c.ContainsKey("X"), c("X"), 600),
+            Key .Y = If(c.ContainsKey("Y"), c("Y"), 600),
+            Key .Width = If(c.ContainsKey("Width"), c("Width"), 640),
+            Key .Height = If(c.ContainsKey("Height"), c("Height"), 480)
+        }).ToList()
+    End Sub
+
+    Private Sub AdjustFormSize(dataGrid As DataGridView, headerLabel As Label)
+        ' Calculate the total column widths
+        Dim totalColumnWidth As Integer = dataGrid.Columns.Cast(Of DataGridViewColumn)().Sum(Function(col) col.Width)
+        Dim actionColumnWidth As Integer = 20 ' Width for the action column on the left
+        Dim padding As Integer = 40 ' Extra space for borders and scrollbars
+        Dim estimatedRowHeight As Integer = 24 ' Approximate height for each row
+        Dim rowCount As Integer = Math.Max(dataGrid.Rows.Count, 5) ' Ensure a minimum of 5 rows are displayed
+
+        ' Set form dimensions
+        Me.Width = totalColumnWidth + actionColumnWidth + padding
+        Me.Height = headerLabel.Height + (rowCount * estimatedRowHeight) + saveButton.Height + cancelButton.Height + 80
+        dataGrid.Height = rowCount * estimatedRowHeight
+    End Sub
+
+    Private Sub OnSave(sender As Object, e As EventArgs)
+        ' Save updates to cameras
+        Me.UpdatedCameras = CType(camerasTable.DataSource, BindingSource).List.Cast(Of Object).ToList()
+        Me.DialogResult = DialogResult.OK
+        LogUtility.WriteLog("info", "Camera Configuration SAVED")
+        Me.Close()
+    End Sub
+
+    Private Sub OnCancel(sender As Object, e As EventArgs)
+        ' Discard changes and close the form
+        Me.DialogResult = DialogResult.Cancel
+        LogUtility.WriteLog("info", "Camera Configuration CANCELLED")
+        Me.Close()
+    End Sub
+
+End Class
+
+
+
+Public Class frmShow
+    Inherits Form
+
+    ' Declare necessary external functions
+    <DllImport("user32.dll", SetLastError:=True, CharSet:=CharSet.Auto)>
+    Private Shared Function EnumWindows(lpEnumFunc As EnumWindowsProc, lParam As IntPtr) As Boolean
+    End Function
+
+    <DllImport("user32.dll", CharSet:=CharSet.Auto)>
+    Private Shared Function GetWindowText(hWnd As IntPtr, lpString As System.Text.StringBuilder, nMaxCount As Integer) As Integer
+    End Function
+
+    <DllImport("user32.dll")>
+    Private Shared Function SetParent(hWndChild As IntPtr, hWndNewParent As IntPtr) As IntPtr
+    End Function
+
+    <DllImport("user32.dll", SetLastError:=True)>
+    Private Shared Function MoveWindow(hWnd As IntPtr, X As Integer, Y As Integer, nWidth As Integer, nHeight As Integer, bRepaint As Boolean) As Boolean
+    End Function
+
+    <DllImport("user32.dll", SetLastError:=True)>
+    Private Shared Function SetWindowLong(hWnd As IntPtr, nIndex As Integer, dwNewLong As Integer) As Integer
+    End Function
+
+    <DllImport("user32.dll", SetLastError:=True)>
+    Private Shared Function GetWindowLong(hWnd As IntPtr, nIndex As Integer) As Integer
+    End Function
+
+    Private Const GWL_STYLE As Integer = -16
+    Private Const WS_VISIBLE As Integer = &H10000000
+
+
+    Private Delegate Function EnumWindowsProc(hWnd As IntPtr, lParam As IntPtr) As Boolean
+
+    Private ReadOnly Cameras As List(Of Config)
+    Private ffplayProcesses As New List(Of Process)()
+
+    Public Sub New(cameras As List(Of Config))
+        Try
+            WriteLog("info", "Initialising frmShow.")
+
+            Me.Cameras = cameras
+            Me.Text = "Camera Feeds"
+            Me.StartPosition = FormStartPosition.CenterScreen
+            Me.WindowState = FormWindowState.Normal ' Starting state
+            Me.FormBorderStyle = FormBorderStyle.SizableToolWindow ' Remove border and buttons
+
+            If Cameras.Count <= 1 Then
+                Me.Size = New Size(800, 580)
+            Else
+                Me.Size = CalculateGridSize()
+            End If
+
+            AddHandler Me.Resize, AddressOf OnFormResize
+
+            SetupGrid()
+            WriteLog("info", "frmShow initialized successfully.")
+        Catch ex As Exception
+            WriteLog("error", $"Error initializing frmShow: {ex.Message}")
+            Throw
+        End Try
+    End Sub
+
+    Private Sub SetupGrid()
+        Try
+            WriteLog("info", "Setting up grid.")
+
+            ' Clear previous controls
+            Me.Controls.Clear()
+
+            Dim columns As Integer = If(Cameras.Count = 1, 1, Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))))
+            Dim rows As Integer = If(Cameras.Count = 1, 1, CInt(Math.Ceiling(Cameras.Count / columns)))
+
+            Dim panelWidth As Integer = Me.ClientSize.Width \ columns
+            Dim panelHeight As Integer = Me.ClientSize.Height \ rows
+
+            For i As Integer = 0 To Cameras.Count - 1
+                Dim camera = Cameras(i)
+                Dim panel As New Panel With {
+                    .Width = panelWidth,
+                    .Height = panelHeight,
+                    .Left = (i Mod columns) * panelWidth,
+                    .Top = (i \ columns) * panelHeight,
+                    .BackColor = Color.Black ' Set default background
+                }
+                Me.Controls.Add(panel)
+
+                Dim rtspUrl As String = ConstructRtspUrl(camera)
+                StartFFplay(rtspUrl, panel, camera.Name)
+            Next
+
+            WriteLog("info", "SetupGrid completed successfully.")
+        Catch ex As Exception
+            WriteLog("error", $"Error in SetupGrid: {ex.Message}")
+            Throw
+        End Try
+    End Sub
+
+    Private Sub OnFormResize(sender As Object, e As EventArgs)
+        Try
+            WriteLog("info", "Form resized. Adjusting grid.")
+
+            Dim columns As Integer = If(Cameras.Count = 1, 1, Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count)))))
+            Dim rows As Integer = If(Cameras.Count = 1, 1, CInt(Math.Ceiling(Cameras.Count / columns)))
+
+            Dim panelWidth As Integer = Me.ClientSize.Width \ columns
+            Dim panelHeight As Integer = Me.ClientSize.Height \ rows
+
+            For i As Integer = 0 To Cameras.Count - 1
+                Dim panel = Me.Controls(i)
+                If TypeOf panel Is Panel Then
+                    panel.Width = panelWidth
+                    panel.Height = panelHeight
+                    panel.Left = (i Mod columns) * panelWidth
+                    panel.Top = (i \ columns) * panelHeight
+
+                    Dim handle = FindWindowByPartialTitle(Cameras(i).Name)
+                    If handle <> IntPtr.Zero Then
+                        MoveWindow(handle, 0, 0, panel.Width, panel.Height, True)
+                    End If
+                End If
+            Next
+        Catch ex As Exception
+            WriteLog("error", $"Error resizing grid: {ex.Message}")
+        End Try
+    End Sub
+
+    Private Function CalculateGridSize() As Size
+        ' Default to 800x600 for single feed or calculate based on grid
+        If Cameras.Count = 1 Then
+            Return New Size(800, 600) ' Adjust to fit single video resolution
+        End If
+
+        Dim feedWidth As Integer = 400
+        Dim feedHeight As Integer = 300
+        Dim gridColumns As Integer = Math.Max(1, CInt(Math.Ceiling(Math.Sqrt(Cameras.Count))))
+        Dim gridRows As Integer = CInt(Math.Ceiling(Cameras.Count / CDbl(gridColumns)))
+
+        Dim totalWidth As Integer = gridColumns * feedWidth
+        Dim totalHeight As Integer = gridRows * feedHeight
+
+        Return New Size(totalWidth, totalHeight)
+    End Function
+
+    Private Function ConstructRtspUrl(camera As Config) As String
+        Dim uri As New Uri(camera.Url)
+        Dim port As Integer = If(uri.IsDefaultPort, 554, uri.Port)
+        Return $"{uri.Scheme}://{camera.Username}:{camera.Password}@{uri.Host}:{port}{uri.PathAndQuery}"
+    End Function
+
+    Private Sub StartFFplay(rtspUrl As String, targetPanel As Panel, cameraName As String)
+        Try
+            Dim ffplayPath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lib", "ffplay.exe")
+
+            ' Verify if ffplay.exe exists
+            If Not File.Exists(ffplayPath) Then
+                WriteLog("error", $"ffplay executable not found at path '{ffplayPath}'")
+                Throw New FileNotFoundException($"ffplay not found: {ffplayPath}")
+            End If
+
+            Dim ffplayProcess As New Process()
+            ffplayProcess.StartInfo.FileName = ffplayPath
+            ffplayProcess.StartInfo.Arguments = $"-rtsp_transport tcp -i ""{rtspUrl}"" -window_title ""{cameraName}"" -noborder"
+            ffplayProcess.StartInfo.UseShellExecute = False
+            ffplayProcess.StartInfo.RedirectStandardOutput = False
+            ffplayProcess.StartInfo.CreateNoWindow = True
+            ffplayProcess.StartInfo.WindowStyle = ProcessWindowStyle.Hidden
+
+            ffplayProcess.Start()
+            ffplayProcesses.Add(ffplayProcess)
+
+            WriteLog("info", $"Started ffplay process for camera '{cameraName}' with PID {ffplayProcess.Id}")
+            AnchorFFplayWindow(ffplayProcess, targetPanel, cameraName)
+        Catch ex As Exception
+            WriteLog("error", $"Error starting ffplay for camera '{cameraName}': {ex.Message}")
+        End Try
+    End Sub
+
+    Private Sub AnchorFFplayWindow(ffplayProcess As Process, targetPanel As Panel, cameraName As String)
+        Try
+            WriteLog("info", $"Attempting to anchor ffplay window for camera '{cameraName}'")
+
+            Dim handle As IntPtr = IntPtr.Zero
+            Dim retries As Integer = 20
+            Dim delay As Integer = 1000
+
+            For attempt As Integer = 1 To retries
+                handle = FindWindowByPartialTitle(cameraName)
+                If handle <> IntPtr.Zero Then
+                    WriteLog("info", $"Found ffplay window for camera '{cameraName}' on attempt {attempt}")
+                    Exit For
+                End If
+                'WriteLog("debug", $"Retry {attempt}/{retries}: No matching window found yet for camera '{cameraName}'")
+                Threading.Thread.Sleep(delay)
+            Next
+
+            If handle = IntPtr.Zero Then
+                Throw New Exception($"Failed to find ffplay window containing title '{cameraName}'.")
+            End If
+
+            ' Remove ffplay's window borders
+            SetWindowLong(handle, GWL_STYLE, WS_VISIBLE)
+
+            ' Set the parent to the target panel
+            'SetParent(handle, targetPanel.Handle)
+            Dim parentResult = SetParent(handle, targetPanel.Handle)
+            If parentResult = IntPtr.Zero Then
+                WriteLog("error", $"SetParent failed for camera '{cameraName}' with error code {Marshal.GetLastWin32Error()}")
+            Else
+                WriteLog("debug", $"SetParent succeeded for camera '{cameraName}'")
+            End If
+
+            ' Allow ffplay to adjust before setting the position and size
+            Threading.Thread.Sleep(500)
+
+            'MoveWindow(handle, 0, 0, targetPanel.Width, targetPanel.Height, True)
+            Dim moveResult = MoveWindow(handle, 0, 0, targetPanel.Width, targetPanel.Height, True)
+            If Not moveResult Then
+                WriteLog("error", $"MoveWindow failed for camera '{cameraName}' with error code {Marshal.GetLastWin32Error()}")
+            Else
+                WriteLog("debug", $"MoveWindow succeeded for camera '{cameraName}'")
+            End If
+
+            WriteLog("info", $"Successfully anchored ffplay window for camera '{cameraName}'")
+
+            ' Log debug information for MoveWindow dimensions
+            WriteLog("debug", $"MoveWindow dimensions: {targetPanel.Width}x{targetPanel.Height}")
+        Catch ex As Exception
+            WriteLog("error", $"Error anchoring ffplay window for camera '{cameraName}': {ex.Message}")
+        End Try
+    End Sub
+
+
+    Private Function FindWindowByPartialTitle(partialTitle As String) As IntPtr
+        Dim foundHandle As IntPtr = IntPtr.Zero
+        Dim allTitles As New List(Of String)
+
+        WriteLog("debug", $"Looking for window title containing '{partialTitle}'. Detected window titles: {String.Join(", ", allTitles)}")
+
+        EnumWindows(Function(hWnd, lParam)
+                        Dim title As New System.Text.StringBuilder(256)
+                        GetWindowText(hWnd, title, title.Capacity)
+                        If title.Length > 0 Then
+                            allTitles.Add(title.ToString().Trim())
+                            If title.ToString().Trim() = partialTitle Then
+                                foundHandle = hWnd
+                                Return False
+                            End If
+                        End If
+                        Return True
+                    End Function, IntPtr.Zero)
+
+        ' Log all detected window titles
+        WriteLog("debug", $"Detected window titles: {String.Join(", ", allTitles)}")
+        Return foundHandle
+    End Function
+
+    Protected Overrides Sub OnFormClosing(e As FormClosingEventArgs)
+        For Each proc In ffplayProcesses
+            If Not proc.HasExited Then
+                proc.Kill()
+            End If
+        Next
+        MyBase.OnFormClosing(e)
+    End Sub
+End Class
+
+
+
+
+Public Module ConfigUtility
+    Public ReadOnly ConfigDirectory As String = InitializeConfigDirectory()
+    Public ReadOnly ConfigFilePath As String = Path.Combine(ConfigDirectory, "cameras.config")
+
+    Private Function InitializeConfigDirectory() As String
+        Dim directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "\", _
+        Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)?.Company.ToString(), "\", _
+        Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyProductAttribute)?.Product.ToString())
+
+        ' Ensure the directory exists
+        EnsureDirectoryExists(directory)
+        Return directory
+    End Function
+
+    Private Sub EnsureDirectoryExists(directoryPath As String)
+        If Not Directory.Exists(directoryPath) Then
+            Directory.CreateDirectory(directoryPath)
+        End If
+    End Sub
+
+    Public Sub SaveConfig(configData As Object)
+        Try
+            Dim configJson As String = JsonSerializer.Serialize(configData, New JsonSerializerOptions With {.WriteIndented = True})
+            File.WriteAllText(ConfigFilePath, configJson)
+        Catch ex As Exception
+            Console.WriteLine($"Error saving configuration: {ex.Message}")
+        End Try
+    End Sub
+
+    Public Function LoadConfig(Of T)() As T
+        Try
+            If File.Exists(ConfigFilePath) Then
+                Dim configJson As String = File.ReadAllText(ConfigFilePath)
+                Return JsonSerializer.Deserialize(Of T)(configJson)
+            End If
+        Catch ex As Exception
+            Console.WriteLine($"Error loading configuration: {ex.Message}")
+        End Try
+        Return Nothing
+    End Function
+
+    Public Sub EnsureDefaultConfigExists(defaultConfig As Object)
+        If Not File.Exists(ConfigFilePath) Then
+            SaveConfig(defaultConfig)
+        End If
+    End Sub
+End Module
+
+
+
+
+    Private Sub StartFFplay(rtspUrl As String, targetPanel As Panel, cameraName As String)
+        Try
+            Dim ffplayPath As String = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "lib", "ffplay.exe")
+
+            ' Verify if ffplay.exe exists
+            If Not File.Exists(ffplayPath) Then
+                WriteLog("error", $"ffplay executable not found at path '{ffplayPath}'")
+                Throw New FileNotFoundException($"ffplay not found: {ffplayPath}")
+            End If
+
+            Dim ffplayProcess As New Process()
+            ffplayProcess.StartInfo.FileName = ffplayPath
+            ffplayProcess.StartInfo.Arguments = $"-rtsp_transport tcp -i ""{rtspUrl}"" -window_title ""{cameraName}"" -noborder"
+            ffplayProcess.StartInfo.UseShellExecute = False
+            ffplayProcess.StartInfo.RedirectStandardOutput = False
+            ffplayProcess.StartInfo.CreateNoWindow = True
+            ffplayProcess.StartInfo.WindowStyle = ProcessWindowStyle.Hidden
+
+            ffplayProcess.Start()
+            ffplayProcesses.Add(ffplayProcess)
+
+            WriteLog("info", $"Started ffplay process for camera '{cameraName}' with PID {ffplayProcess.Id}")
+            AnchorFFplayWindow(ffplayProcess, targetPanel, cameraName)
+        Catch ex As Exception
+            WriteLog("error", $"Error starting ffplay for camera '{cameraName}': {ex.Message}")
+        End Try
+    End Sub
+
+
+
+
+Public Class frmAbout
+    Inherits Form
+    Private memoField As TextBox
+    Private authorLabel As Label
+    Private versionLabel As Label
+    Private hyperlink As LinkLabel
+    Public Sub New()
+        ' Set form properties
+        Me.Text = "About"
+        Me.Size = New Size(420, 300)
+        Me.StartPosition = FormStartPosition.CenterScreen
+
+        memoField = New TextBox() with { .Location = New Point(20, 20), .Size = New Size(340, 50), .ReadOnly = True, .Multiline = True, .ScrollBars = ScrollBars.None, .Text = "A lightweight system tray application for managing and viewing RTSP camera feeds." }
+        authorLabel = New Label() with { .Location = New Point(20, 140), .AutoSize = True, .Text = "Author: " & Assembly.GetExecutingAssembly().GetCustomAttribute(Of AssemblyCompanyAttribute)()?.Company.ToString() }
+        versionLabel = New Label() with { .Location = New Point(20, 170), .AutoSize = True, .Text = "Version: " & Assembly.GetExecutingAssembly().GetName().Version.ToString() }
+        hyperlink = New LinkLabel() with { .Location = New Point(20, 200), .AutoSize = True, .Text = "https://github.com/sjackson0109/camera-tray-app" }
+
+        Me.Controls.Add(memoField)
+        Me.Controls.Add(authorLabel)
+        Me.Controls.Add(versionLabel)
+        Me.Controls.Add(hyperlink)
+
+        AddHandler hyperlink.LinkClicked, AddressOf HyperlinkClicked
+
+    End Sub
+
+    Private Sub HyperlinkClicked(sender As Object, e As LinkLabelLinkClickedEventArgs)
+        Process.Start( New ProcessStartInfo( "https://github.com/sjackson0109/camera-tray-app" ) With { .UseShellExecute = True } )
+    End Sub
+
+End Class

@@ -30,5 +30,5 @@ Imports System.Runtime.Versioning
 '
 ' You can specify all the values or use the '*' for Build and Revision Numbers 
 ' by default:
-<Assembly: AssemblyVersion("1.1.0.0")>
-<Assembly: AssemblyFileVersion("1.1.0.0")>
+<Assembly: AssemblyVersion("1.2")>
+<Assembly: AssemblyFileVersion("1.2")>

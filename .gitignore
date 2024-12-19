@@ -1,0 +1,9 @@
+// Ignore the BIN and OBJ folders
+bin/*
+bin
+obj/*
+obj
+
+// Skip offline/demonstration cameras.config file. This filename is expected inside either:
+// Installation folder, or `%appdata%\Simon Jackson\CameraTrayApp` folders.
+cameras.config
